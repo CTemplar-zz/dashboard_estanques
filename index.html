@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Estanques Piscícolas</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        :root {
+            --bg-color: #0f171e;
+            --panel-bg: #162430;
+            --text-color: #ffffff;
+            --accent-blue: #00a0ff;
+            --border-color: #405263;
+            --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            margin: 0; padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-family);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- HEADER --- */
+        header {
+            background-color: var(--panel-bg);
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border-color);
+            height: 60px;
+            flex-shrink: 0;
+            z-index: 1001;
+        }
+
+        h1 { font-size: 1.4rem; margin: 0; font-weight: 500; }
+
+        /* --- FILTROS MULTI-SELECT --- */
+        .filters { display: flex; gap: 10px; }
+        .multiselect { position: relative; user-select: none; width: 200px; }
+        .selectBox { position: relative; cursor: pointer; }
+        .dropdown-btn {
+            background-color: #000; color: #ccc; border: 1px solid #555;
+            padding: 8px; border-radius: 4px; cursor: pointer; font-size: 0.9rem;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .dropdown-btn:after { content: '▼'; font-size: 0.7rem; margin-left: 5px;}
+        .overSelect { position: absolute; left: 0; right: 0; top: 0; bottom: 0; }
+        .checkboxes {
+            display: none; border: 1px solid #555; border-top: none;
+            position: absolute; background-color: #162430; width: 100%;
+            max-height: 300px; overflow-y: auto; z-index: 2000;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+        }
+        .checkboxes label { display: block; padding: 5px 10px; cursor: pointer; border-bottom: 1px solid #333; font-size: 0.9rem; }
+        .checkboxes label:hover { background-color: #00a0ff; color: white; }
+
+        /* --- LAYOUT --- */
+        .main-container {
+            display: grid;
+            grid-template-columns: 22% 53% 25%;
+            grid-template-rows: 1fr;
+            height: calc(100vh - 60px);
+            padding: 10px; gap: 10px; box-sizing: border-box;
+        }
+        .panel {
+            background-color: var(--panel-bg); border: 1px solid var(--border-color);
+            display: flex; flex-direction: column; padding: 15px;
+            position: relative; box-sizing: border-box; border-radius: 4px;
+        }
+
+        /* --- COLUMNA IZQUIERDA --- */
+        .left-col { display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+        .kpi-container { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex-shrink: 0; }
+        .kpi-card {
+            background-color: rgba(0,0,0,0.2); padding: 15px 10px;
+            border: 1px solid var(--border-color); border-left: 4px solid var(--accent-blue);
+            display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+        }
+        .kpi-icon {
+            width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+            background: rgba(0, 160, 255, 0.1); border-radius: 50%; flex-shrink: 0;
+        }
+        .kpi-icon svg { width: 24px; height: 24px; fill: var(--accent-blue); }
+        .kpi-text-content { display: flex; flex-direction: column; }
+        .kpi-title { font-size: 0.75rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
+        .kpi-value { font-size: 1.6rem; font-weight: bold; line-height: 1.2; }
+
+        /* --- MAPA (Corrección Cursor) --- */
+        #map { width: 100%; height: 100%; background-color: #000; border-radius: 2px; }
+        
+        /* Forzar cursor de flecha (default) en todo el mapa */
+        .leaflet-container { cursor: default !important; }
+        .leaflet-interactive { cursor: pointer; } /* Mano solo al pasar sobre puntos */
+        .leaflet-grab { cursor: default !important; }
+        .leaflet-dragging .leaflet-grab { cursor: move !important; }
+
+        /* --- COLUMNA DERECHA --- */
+        .right-col { display: flex; flex-direction: column; gap: 10px; height: 100%; overflow: hidden; }
+        .panel-half-top { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+        .panel-half-bottom { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+        .chart-wrapper { flex: 1; position: relative; width: 100%; height: 100%; overflow: hidden; }
+        .table-scroll-area { flex: 1; overflow-y: auto; margin-top: 5px; }
+        
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        thead th { background-color: #0d1216; position: sticky; top: 0; z-index: 2; padding: 10px; text-align: right; border-bottom: 2px solid #555; color: #ddd; }
+        tbody td { padding: 8px 10px; text-align: right; border-bottom: 1px solid #333; }
+        th:first-child, td:first-child { text-align: left; }
+        
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #162430; }
+        ::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+
+        #loader {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95); z-index: 9999;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: white; font-size: 1.2rem; gap: 15px;
+        }
+        .spinner {
+            width: 40px; height: 40px; border: 4px solid #333;
+            border-top: 4px solid var(--accent-blue); border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <div>Cargando datos del proyecto...</div>
+    </div>
+
+    <header>
+        <div style="display:flex; align-items:center; gap:15px;">
+            <img src="https://raw.githubusercontent.com/CTemplar-zz/EstanquesPiscicultura/86aff8cc3830dc727b157a1c4cbe94b46ca120b6/Logos.png" alt="Logo" height="50">
+            <h1>Dashboard de estanques piscicolas</h1>
+        </div>
+        
+        <div class="filters">
+            <div class="multiselect" id="ms-depto">
+                <div class="selectBox" onclick="toggleCheckboxArea('list-depto')">
+                    <div class="dropdown-btn" id="btn-depto">Todos los Deptos</div>
+                    <div class="overSelect"></div>
+                </div>
+                <div id="list-depto" class="checkboxes"></div>
+            </div>
+
+            <div class="multiselect" id="ms-muni">
+                <div class="selectBox" onclick="toggleCheckboxArea('list-muni')">
+                    <div class="dropdown-btn" id="btn-muni">Todos los Municipios</div>
+                    <div class="overSelect"></div>
+                </div>
+                <div id="list-muni" class="checkboxes"></div>
+            </div>
+
+            <div class="multiselect" id="ms-anio" style="width: 150px;">
+                <div class="selectBox" onclick="toggleCheckboxArea('list-anio')">
+                    <div class="dropdown-btn" id="btn-anio">Todos los Años</div>
+                    <div class="overSelect"></div>
+                </div>
+                <div id="list-anio" class="checkboxes"></div>
+            </div>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <div class="left-col">
+            <div class="kpi-container">
+                <div class="kpi-card">
+                    <div class="kpi-icon"><svg viewBox="0 0 24 24"><path d="M21.5 12c0-1.2-.5-2.2-1.2-3 .5-.8.2-2.2-.8-2.5-.8-.2-1.8.2-2.2 1-.8-.5-2-.8-3.2-.8-3.8 0-6.8 2.5-8.5 4.5l-4-2c-1.2-.5-2.2.2-2.2 1.5v2.5c0 1.2 1 2 2.2 1.5l4-2c1.8 2 4.8 4.5 8.5 4.5 1.2 0 2.5-.2 3.2-.8.5.8 1.5 1.2 2.2 1 1-.2 1.2-1.8.8-2.5.7-.8 1.2-1.8 1.2-3z"/></svg></div>
+                    <div class="kpi-text-content"><div class="kpi-title">Nro Estanques</div><div class="kpi-value" id="kpi-count">0</div></div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></div>
+                    <div class="kpi-text-content"><div class="kpi-title">Nro Predios</div><div class="kpi-value" id="kpi-predios">0</div></div>
+                </div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-icon"><svg viewBox="0 0 24 24"><path d="M21 4H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H3V6h18v12zM5 12h2v4H5zm4-2h2v6H9zm4-4h2v10h-2zm4 6h2v4h-2z"/></svg></div>
+                <div class="kpi-text-content"><div class="kpi-title">Superficie Total (m²)</div><div class="kpi-value" id="kpi-area" style="color:var(--accent-blue);">0</div></div>
+            </div>
+            <div class="kpi-card" style="margin-bottom: 5px;">
+                <div class="kpi-icon"><svg viewBox="0 0 24 24"><path d="M14 11c0 .55-.45 1-1 1s-1-.45-1-1 .45-1 1-1 1 .45 1 1zm-2.18 5.6C10.74 16.14 10 15.17 10 14c0-2.21 1.79-4 4-4s4 1.79 4 4c0 1.17-.74 2.14-1.82 2.6L19 22H5l6.82-5.4zM7 12c-2.76 0-5 2.24-5 5h10c0-2.76-2.24-5-5-5zm12-9c2.76 0 5 2.24 5 5h-2.5l-2.5-4h-5L11.5 8H9c0-2.76 2.24-5 5-5z"/></svg></div>
+                <div class="kpi-text-content"><div class="kpi-title">Producción Est. (kg)</div><div class="kpi-value" id="kpi-prod">0</div></div>
+            </div>
+            <div class="panel" style="flex:1; min-height: 0;">
+                <div class="kpi-title" style="margin-bottom:10px;">Nro de estanques por municipio</div>
+                <div class="chart-wrapper"><canvas id="pieChart"></canvas></div>
+            </div>
+        </div>
+
+        <div class="panel" style="padding:0; border: 1px solid var(--border-color);">
+            <div id="map"></div>
+        </div>
+
+        <div class="right-col">
+            <div class="panel panel-half-top">
+                <div class="table-scroll-area">
+                    <table id="summaryTable">
+                        <thead><tr><th>MUNICIPIO</th><th>Sup (m²)</th><th>Nro</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="panel panel-half-bottom">
+                <div class="kpi-title" style="margin-bottom:10px;">Estanques construidos por año</div>
+                <div class="chart-wrapper"><canvas id="barChart"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. CONFIGURACIÓN ---
+        const urlEstanques = "https://raw.githubusercontent.com/CTemplar-zz/EstanquesPiscicultura/main/EstanquesBolivia.geojson";
+        const urlMunicipios = "https://raw.githubusercontent.com/CTemplar-zz/EstanquesPiscicultura/main/Municipios.geojson";
+        
+        let rawDataEstanques = null;
+        let rawDataMunicipios = null;
+        let map;
+        
+        const layerGroupEstanques = L.layerGroup(); 
+        const layerGroupMunicipios = L.layerGroup();
+        
+        let pieChart, barChart;
+        let myCanvasRenderer; // Se definirá en initMap
+
+        // --- 2. INICIALIZACIÓN MAPA ---
+        function initMap() {
+            map = L.map('map', { preferCanvas: true }).setView([-17.3, -64.5], 7);
+
+            // IMPORTANTE: Crear un Pane personalizado con zIndex alto para los puntos
+            // Esto asegura que los puntos estén "encima" de los polígonos y reciban clicks
+            map.createPane('pointsPane');
+            map.getPane('pointsPane').style.zIndex = 650; // Overlay es 400, Marker es 600
+
+            // Configurar el renderer para usar ESTE pane específicamente
+            myCanvasRenderer = L.canvas({ padding: 0.5, pane: 'pointsPane' });
+
+            const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Esri'
+            });
+            const darkMap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: 'CartoDB'
+            });
+            
+            satellite.addTo(map);
+            layerGroupMunicipios.addTo(map);
+            layerGroupEstanques.addTo(map);
+
+            const baseMaps = { "Satélite": satellite, "Oscuro": darkMap };
+            const overlayMaps = { 
+                "Estanques (Puntos)": layerGroupEstanques, 
+                "Límites Municipales": layerGroupMunicipios 
+            };
+            
+            L.control.layers(baseMaps, overlayMaps, { collapsed: true }).addTo(map);
+        }
+
+        // --- 3. CARGA DE DATOS ---
+        async function loadData() {
+            try {
+                const [resEst, resMun] = await Promise.all([fetch(urlEstanques), fetch(urlMunicipios)]);
+                rawDataEstanques = await resEst.json();
+                rawDataMunicipios = await resMun.json();
+                
+                // Pre-calcular centroides
+                rawDataEstanques.features.forEach(f => {
+                    if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
+                        const coords = f.geometry.type === 'Polygon' ? f.geometry.coordinates[0] : f.geometry.coordinates[0][0];
+                        let lat = 0, lng = 0, len = coords.length;
+                        for (let i = 0; i < len; i++) { lng += coords[i][0]; lat += coords[i][1]; }
+                        f.properties._centroid = [lat/len, lng/len];
+                    }
+                });
+
+                initFilters();
+                updateDashboard();
+                document.getElementById('loader').style.display = 'none';
+
+            } catch (error) {
+                console.error(error);
+                alert("Error cargando datos.");
+            }
+        }
+
+        // --- 4. FILTROS MULTI-SELECT ---
+        let expandedId = null;
+
+        function toggleCheckboxArea(id) {
+            const checkboxes = document.getElementById(id);
+            if (expandedId && expandedId !== id) {
+                document.getElementById(expandedId).style.display = "none";
+            }
+            if (checkboxes.style.display === "block") {
+                checkboxes.style.display = "none";
+                expandedId = null;
+            } else {
+                checkboxes.style.display = "block";
+                expandedId = id;
+            }
+        }
+
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.multiselect')) {
+                document.querySelectorAll('.checkboxes').forEach(el => el.style.display = 'none');
+                expandedId = null;
+            }
+        });
+
+        function fillMultiSelect(containerId, items) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = ""; 
+
+            const allDiv = document.createElement('label');
+            allDiv.innerHTML = `<input type="checkbox" value="all" checked onchange="handleSelectAll('${containerId}', this)"> (Seleccionar Todo)`;
+            allDiv.style.fontWeight = "bold"; allDiv.style.color = "#00a0ff";
+            container.appendChild(allDiv);
+
+            items.forEach(val => {
+                const label = document.createElement('label');
+                label.innerHTML = `<input type="checkbox" value="${val}" checked onchange="updateDashboard()"> ${val}`;
+                container.appendChild(label);
+            });
+        }
+
+        function handleSelectAll(containerId, source) {
+            const checkboxes = document.querySelectorAll(`#${containerId} input[type="checkbox"]`);
+            checkboxes.forEach(cb => { if(cb !== source) cb.checked = source.checked; });
+            updateDashboard();
+        }
+
+        function getSelectedValues(containerId) {
+            const checkboxes = document.querySelectorAll(`#${containerId} input[type="checkbox"]`);
+            const selected = [];
+            let allChecked = false;
+
+            checkboxes.forEach(cb => {
+                if (cb.value === "all") { if (cb.checked) allChecked = true; }
+                else if (cb.checked) { selected.push(cb.value); }
+            });
+            
+            const btnId = containerId.replace('list', 'btn');
+            const btn = document.getElementById(btnId);
+            const totalOptions = checkboxes.length - 1; 
+
+            if (selected.length === 0) btn.innerText = "Ninguno";
+            else if (selected.length === totalOptions || allChecked) {
+                const type = btnId.includes('depto') ? "Deptos" : btnId.includes('muni') ? "Municipios" : "Años";
+                btn.innerText = `Todos los ${type}`;
+            } else if (selected.length <= 2) btn.innerText = selected.join(", ");
+            else btn.innerText = `${selected.length} seleccionados`;
+
+            return selected;
+        }
+
+        function initFilters() {
+            const deptos = new Set();
+            const anios = new Set();
+            rawDataEstanques.features.forEach(f => {
+                if(f.properties.DEPARTAMEN) deptos.add(f.properties.DEPARTAMEN);
+                if(f.properties.YEAR) anios.add(f.properties.YEAR);
+            });
+            fillMultiSelect('list-depto', Array.from(deptos).sort());
+            fillMultiSelect('list-anio', Array.from(anios).sort((a,b)=>a-b));
+            updateMuniList(Array.from(deptos)); 
+        }
+
+        function updateMuniList(selectedDeptos) {
+            const munis = new Set();
+            rawDataEstanques.features.forEach(f => {
+                if (selectedDeptos.includes(f.properties.DEPARTAMEN)) {
+                    if(f.properties.MUNICIPIO) munis.add(f.properties.MUNICIPIO);
+                }
+            });
+            fillMultiSelect('list-muni', Array.from(munis).sort());
+        }
+
+
+        // --- 5. UPDATE DASHBOARD ---
+        function updateDashboard() {
+            const selDeptos = getSelectedValues('list-depto');
+            const selMunis = getSelectedValues('list-muni');
+            const selAnios = getSelectedValues('list-anio');
+
+            const filteredPoints = rawDataEstanques.features.filter(f => {
+                const p = f.properties;
+                const matchDepto = selDeptos.includes(p.DEPARTAMEN);
+                const matchMuni = selMunis.includes(p.MUNICIPIO);
+                const matchAnio = selAnios.includes(p.YEAR.toString()) || selAnios.includes(p.YEAR);
+                return matchDepto && matchMuni && matchAnio;
+            });
+
+            const filteredMunis = rawDataMunicipios.features.filter(f => {
+                const p = f.properties;
+                return selDeptos.includes(p.DEPARTAMEN) && selMunis.includes(p.MUNICIPIO);
+            });
+
+            drawEstanquesPoints(filteredPoints);
+            drawMunicipiosPoly(filteredMunis);
+            updateMetrics(filteredPoints);
+        }
+
+        // --- 6. DIBUJAR ---
+        function drawMunicipiosPoly(features) {
+            layerGroupMunicipios.clearLayers();
+            if(features.length > 0) {
+                const layer = L.geoJSON(features, {
+                    style: { color: "#ffffff", weight: 1.5, opacity: 0.8, fillColor: "#ffffff", fillOpacity: 0.05 },
+                    interactive: false // Clave para que no bloquee clicks
+                });
+                layerGroupMunicipios.addLayer(layer);
+            }
+        }
+
+        function drawEstanquesPoints(features) {
+            layerGroupEstanques.clearLayers();
+            const markers = [];
+
+            features.forEach(f => {
+                const p = f.properties;
+                let latlng = p._centroid;
+                if (!latlng && f.geometry.type === 'Point') latlng = [f.geometry.coordinates[1], f.geometry.coordinates[0]];
+                if (!latlng) return;
+
+                const marker = L.circleMarker(latlng, {
+                    renderer: myCanvasRenderer, // Usar el renderer asignado al Pane
+                    pane: 'pointsPane',         // Forzar al Pane superior
+                    radius: 4,                  // Radio clickeable
+                    fillColor: "#00a0ff",     
+                    color: "#000000",
+                    weight: 0.5,
+                    fillOpacity: 1
+                });
+                
+                marker.bindPopup(`
+                    <div style="font-family: 'Segoe UI', sans-serif; color: #333; font-size: 0.9rem; min-width: 180px;">
+                        <h4 style="margin:0 0 8px 0; border-bottom:1px solid #ccc; padding-bottom:5px; color:#000;">Detalle Estanque</h4>
+                        <b>Municipio:</b> ${p.MUNICIPIO}<br>
+                        <b>Depto:</b> ${p.DEPARTAMEN}<br>
+                        <b>Año:</b> ${p.YEAR}<br>
+                        <b>Área:</b> ${Math.round(p.Shape_Area).toLocaleString()} m²
+                    </div>
+                `);
+                markers.push(marker);
+            });
+            markers.forEach(m => layerGroupEstanques.addLayer(m));
+        }
+
+        // --- 7. METRICAS ---
+        function updateMetrics(features) {
+            const totalArea = features.reduce((sum, f) => sum + (f.properties.Shape_Area || 0), 0);
+            document.getElementById('kpi-count').innerText = features.length.toLocaleString('es-BO');
+            document.getElementById('kpi-predios').innerText = features.length.toLocaleString('es-BO');
+            document.getElementById('kpi-area').innerText = Math.round(totalArea).toLocaleString('es-BO');
+            document.getElementById('kpi-prod').innerText = Math.round(totalArea * 0.8).toLocaleString('es-BO');
+
+            const byMuni = {};
+            const byYear = {};
+            features.forEach(f => {
+                const m = f.properties.MUNICIPIO || "S/D";
+                const y = f.properties.YEAR || "S/D";
+                const a = f.properties.Shape_Area || 0;
+                if(!byMuni[m]) byMuni[m] = { count: 0, area: 0 };
+                byMuni[m].count++;
+                byMuni[m].area += a;
+                byYear[y] = (byYear[y] || 0) + 1;
+            });
+
+            const sortedMunis = Object.keys(byMuni).map(k => ({name: k, ...byMuni[k]})).sort((a,b) => b.count - a.count);
+            const tbody = document.querySelector('#summaryTable tbody');
+            tbody.innerHTML = '';
+            sortedMunis.forEach(item => {
+                tbody.innerHTML += `<tr><td>${item.name}</td><td>${Math.round(item.area).toLocaleString()}</td><td>${item.count.toLocaleString()}</td></tr>`;
+            });
+            updateCharts(byYear, sortedMunis);
+        }
+
+        function updateCharts(byYear, sortedMunis) {
+            const labelsYear = Object.keys(byYear).sort();
+            const valsYear = labelsYear.map(k => byYear[k]);
+            if(barChart) barChart.destroy();
+            barChart = new Chart(document.getElementById('barChart'), {
+                type: 'bar',
+                data: { labels: labelsYear, datasets: [{ label: 'Estanques', data: valsYear, backgroundColor: '#00a0ff', borderRadius: 2 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { grid: { color: '#333' }, ticks: { color: '#aaa'} }, x: { grid: { display: false }, ticks: { color: '#aaa'} } } }
+            });
+
+            const limit = 10;
+            const top = sortedMunis.slice(0, limit);
+            const other = sortedMunis.slice(limit).reduce((a,b) => a + b.count, 0);
+            const labelsPie = top.map(x => x.name);
+            const valsPie = top.map(x => x.count);
+            if (other > 0) { labelsPie.push('Otros'); valsPie.push(other); }
+            const colors = ['#ffca3a', '#8ac926', '#1982c4', '#6a4c93', '#ff595e', '#4cc9f0', '#f72585', '#b5179e', '#480ca8', '#3f37c9', '#adb5bd'];
+
+            if(pieChart) pieChart.destroy();
+            pieChart = new Chart(document.getElementById('pieChart'), {
+                type: 'doughnut',
+                data: { labels: labelsPie, datasets: [{ data: valsPie, backgroundColor: colors.slice(0, labelsPie.length), borderWidth: 0 }] },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '60%', plugins: { legend: { position: 'right', labels: { color: '#fff', boxWidth: 10, font: {size: 9} } } } }
+            });
+        }
+
+        initMap();
+        loadData();
+    </script>
+</body>
+</html>
