@@ -133,6 +133,83 @@
             animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* --- MOBILE OPTIMIZATION --- */
+        .mobile-controls {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(22, 36, 48, 0.9);
+            border: 1px solid var(--border-color);
+            border-radius: 30px;
+            padding: 5px 15px;
+            z-index: 2005;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+            gap: 15px;
+        }
+
+        .mobile-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: #aaa;
+            font-size: 0.65rem;
+            transition: color 0.3s;
+        }
+
+        .mobile-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: #aaa;
+            margin-bottom: 2px;
+        }
+
+        .mobile-btn.active { color: var(--accent-blue); }
+        .mobile-btn.active svg { fill: var(--accent-blue); }
+
+        @media (max-width: 768px) {
+            header { padding: 0 10px; height: auto; padding-top: 5px; flex-direction: column; align-items: flex-start; gap: 5px; border-bottom: none; }
+            header h1 { font-size: 1.1rem; }
+            header img { height: 35px; }
+            .filters { width: 100%; overflow-x: auto; padding-bottom: 8px; border-bottom: 1px solid var(--border-color); }
+            .multiselect { width: 140px; flex-shrink: 0; }
+            .dropdown-btn { font-size: 0.75rem; padding: 6px; }
+
+            .main-container {
+                display: block;
+                height: calc(100vh - 105px);
+                padding: 0;
+            }
+
+            .left-col, .right-col {
+                position: fixed;
+                top: 105px;
+                left: 0;
+                width: 100%;
+                height: calc(100vh - 105px);
+                z-index: 2001;
+                background: var(--bg-color);
+                display: none;
+                padding: 15px;
+                overflow-y: auto;
+            }
+
+            .panel { margin-bottom: 10px; }
+            #map { height: 100% !important; border-radius: 0; }
+            .mobile-controls { display: flex; }
+            
+            .kpi-container { grid-template-columns: 1fr; }
+            .leaflet-top.leaflet-right { top: 10px; }
+            .leaflet-control-layers { margin-top: 10px !important; }
+        }
+
     </style>
 </head>
 <body>
@@ -174,6 +251,26 @@
             </div>
         </div>
     </header>
+
+    <div class="mobile-controls">
+        <button class="mobile-btn active" onclick="showMobilePanel('map-panel', this)">
+            <svg viewBox="0 0 24 24"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
+            Mapa
+        </button>
+        <button class="mobile-btn" onclick="showMobilePanel('left-col', this)">
+            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7zm4-3h2v10h-2zm4 6h2v4h-2z"/></svg>
+            KPIs
+        </button>
+        <button class="mobile-btn" onclick="showMobilePanel('right-col', this)">
+            <svg viewBox="0 0 24 24"><path d="M5 9.2h14V11H5zM5 5.8h14V7.6H5zm0 6.8h14v1.8H5zm0 3.4h14v1.8H5z"/></svg>
+            Datos
+        </button>
+        <button class="mobile-btn" onclick="showMobilePanel('filters-mobile', this)">
+            <svg viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
+            Filtros
+        </button>
+    </div>
+
 
     <div class="main-container">
         <div class="left-col">
@@ -513,8 +610,48 @@
             });
         }
 
+        // --- 8. MOBILE LOGIC ---
+        function showMobilePanel(panelId, btn) {
+            // Reset categories
+            document.querySelectorAll('.left-col, .right-col').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('.mobile-btn').forEach(el => el.classList.remove('active'));
+            
+            // Filters special case (they are in header)
+            const filters = document.querySelector('.filters');
+            if (window.innerWidth <= 768) {
+                if (panelId === 'filters-mobile') {
+                    filters.style.display = 'flex';
+                    filters.style.position = 'fixed';
+                    filters.style.top = '105px';
+                    filters.style.left = '0';
+                    filters.style.width = '100%';
+                    filters.style.background = 'var(--panel-bg)';
+                    filters.style.zIndex = '2002';
+                    filters.style.padding = '15px';
+                    filters.style.boxSizing = 'border-box';
+                    filters.style.flexWrap = 'wrap';
+                } else {
+                    filters.style.display = ''; // Reset to header logic
+                    filters.style.position = '';
+                }
+            }
+
+            if (panelId !== 'map-panel' && panelId !== 'filters-mobile') {
+                const panel = document.querySelector('.' + panelId);
+                panel.style.display = 'block';
+            }
+            
+            if (btn) btn.classList.add('active');
+            
+            // Fix map size when switching back
+            if (panelId === 'map-panel') {
+                setTimeout(() => map.invalidateSize(), 100);
+            }
+        }
+
         initMap();
         loadData();
+
     </script>
 </body>
 </html>
