@@ -506,7 +506,9 @@
             // Si estamos en móvil y existe la versión móvil del contenedor, la usamos
             if (window.innerWidth <= 768) {
                 const mobileId = containerId + '-m';
-                if (document.getElementById(mobileId)) {
+                const mobileEl = document.getElementById(mobileId);
+                // Solo usar el contenedor móvil si ya tiene checkboxes poblados
+                if (mobileEl && mobileEl.querySelectorAll('input[type="checkbox"]').length > 0) {
                     targetId = mobileId;
                 }
             }
