@@ -175,37 +175,72 @@
         .mobile-btn.active svg { fill: var(--accent-blue); }
 
         @media (max-width: 768px) {
-            header { padding: 0 10px; height: auto; padding-top: 5px; flex-direction: column; align-items: flex-start; gap: 5px; border-bottom: none; }
-            header h1 { font-size: 1.1rem; }
+            /* Header: only logo + title, no filters */
+            header { padding: 0 10px; height: 55px; flex-direction: row; align-items: center; gap: 10px; border-bottom: 1px solid var(--border-color); }
+            header h1 { font-size: 1rem; }
             header img { height: 35px; }
-            .filters { width: 100%; overflow-x: auto; padding-bottom: 8px; border-bottom: 1px solid var(--border-color); }
+            /* Hide filters from header on mobile — accessible only via icon */
+            .filters { display: none !important; }
             .multiselect { width: 140px; flex-shrink: 0; }
             .dropdown-btn { font-size: 0.75rem; padding: 6px; }
 
+            /* Map fills remaining height below header */
             .main-container {
                 display: block;
-                height: calc(100vh - 105px);
+                height: calc(100vh - 55px);
+                padding: 0;
+                position: relative;
+            }
+
+            /* Map panel: take full height of main-container */
+            .main-container > .panel {
+                height: 100%;
+                border-radius: 0;
+                border: none;
                 padding: 0;
             }
 
+            /* Side panels are overlays */
             .left-col, .right-col {
                 position: fixed;
-                top: 105px;
+                top: 55px;
                 left: 0;
                 width: 100%;
-                height: calc(100vh - 105px);
+                height: calc(100vh - 55px);
                 z-index: 2001;
                 background: var(--bg-color);
                 display: none;
                 padding: 15px;
+                box-sizing: border-box;
                 overflow-y: auto;
             }
 
-            .panel { margin-bottom: 10px; }
+            /* Filters panel overlay */
+            .filters-overlay {
+                position: fixed;
+                top: 55px;
+                left: 0;
+                width: 100%;
+                z-index: 2003;
+                background: var(--panel-bg);
+                border-bottom: 1px solid var(--border-color);
+                padding: 12px 15px;
+                box-sizing: border-box;
+                display: none;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            /* KPI: single column */
+            .kpi-container { grid-template-columns: 1fr; }
+
+            /* Fix bar chart height in right panel */
+            .panel-half-top { flex: 0 0 auto; max-height: 45%; min-height: 0; }
+            .panel-half-bottom { flex: 0 0 260px; min-height: 0; }
+            .panel-half-bottom .chart-wrapper { height: 200px; }
+
             #map { height: 100% !important; border-radius: 0; }
             .mobile-controls { display: flex; }
-            
-            .kpi-container { grid-template-columns: 1fr; }
             .leaflet-top.leaflet-right { top: 10px; }
             .leaflet-control-layers { margin-top: 10px !important; }
         }
@@ -225,7 +260,7 @@
             <h1>Dashboard de estanques piscicolas</h1>
         </div>
         
-        <div class="filters">
+        <div class="filters" id="main-filters">
             <div class="multiselect" id="ms-depto">
                 <div class="selectBox" onclick="toggleCheckboxArea('list-depto')">
                     <div class="dropdown-btn" id="btn-depto">Todos los Deptos</div>
@@ -251,6 +286,31 @@
             </div>
         </div>
     </header>
+
+    <!-- Mobile-only filters overlay (shown only when Filtros icon is tapped) -->
+    <div class="filters-overlay" id="filters-overlay">
+        <div class="multiselect" id="ms-depto-m" style="width:160px;">
+            <div class="selectBox" onclick="toggleCheckboxArea('list-depto-m')">
+                <div class="dropdown-btn" id="btn-depto-m">Todos los Deptos</div>
+                <div class="overSelect"></div>
+            </div>
+            <div id="list-depto-m" class="checkboxes"></div>
+        </div>
+        <div class="multiselect" id="ms-muni-m" style="width:160px;">
+            <div class="selectBox" onclick="toggleCheckboxArea('list-muni-m')">
+                <div class="dropdown-btn" id="btn-muni-m">Todos los Municipios</div>
+                <div class="overSelect"></div>
+            </div>
+            <div id="list-muni-m" class="checkboxes"></div>
+        </div>
+        <div class="multiselect" id="ms-anio-m" style="width:130px;">
+            <div class="selectBox" onclick="toggleCheckboxArea('list-anio-m')">
+                <div class="dropdown-btn" id="btn-anio-m">Todos los Años</div>
+                <div class="overSelect"></div>
+            </div>
+            <div id="list-anio-m" class="checkboxes"></div>
+        </div>
+    </div>
 
     <div class="mobile-controls">
         <button class="mobile-btn active" onclick="showMobilePanel('map-panel', this)">
@@ -439,7 +499,16 @@
         }
 
         function getSelectedValues(containerId) {
-            const checkboxes = document.querySelectorAll(`#${containerId} input[type="checkbox"]`);
+            let targetId = containerId;
+            // Si estamos en móvil y existe la versión móvil del contenedor, la usamos
+            if (window.innerWidth <= 768) {
+                const mobileId = containerId + '-m';
+                if (document.getElementById(mobileId)) {
+                    targetId = mobileId;
+                }
+            }
+
+            const checkboxes = document.querySelectorAll(`#${targetId} input[type="checkbox"]`);
             const selected = [];
             let allChecked = false;
 
@@ -448,16 +517,18 @@
                 else if (cb.checked) { selected.push(cb.value); }
             });
             
-            const btnId = containerId.replace('list', 'btn');
+            const btnId = targetId.replace('list', 'btn');
             const btn = document.getElementById(btnId);
             const totalOptions = checkboxes.length - 1; 
 
-            if (selected.length === 0) btn.innerText = "Ninguno";
-            else if (selected.length === totalOptions || allChecked) {
-                const type = btnId.includes('depto') ? "Deptos" : btnId.includes('muni') ? "Municipios" : "Años";
-                btn.innerText = `Todos los ${type}`;
-            } else if (selected.length <= 2) btn.innerText = selected.join(", ");
-            else btn.innerText = `${selected.length} seleccionados`;
+            if (btn) {
+                if (selected.length === 0) btn.innerText = "Ninguno";
+                else if (selected.length === totalOptions || allChecked) {
+                    const type = btnId.includes('depto') ? "Deptos" : btnId.includes('muni') ? "Municipios" : "Años";
+                    btn.innerText = `Todos los ${type}`;
+                } else if (selected.length <= 2) btn.innerText = selected.join(", ");
+                else btn.innerText = `${selected.length} seleccionados`;
+            }
 
             return selected;
         }
@@ -611,43 +682,58 @@
         }
 
         // --- 8. MOBILE LOGIC ---
-        function showMobilePanel(panelId, btn) {
-            // Reset categories
-            document.querySelectorAll('.left-col, .right-col').forEach(el => el.style.display = 'none');
-            document.querySelectorAll('.mobile-btn').forEach(el => el.classList.remove('active'));
+
+        // Populate mobile filter dropdowns (mirrors desktop ones)
+        function fillMobileMultiSelect(mobileContainerId, desktopContainerId) {
+            const src = document.getElementById(desktopContainerId);
+            const dst = document.getElementById(mobileContainerId);
+            if (!src || !dst) return;
             
-            // Filters special case (they are in header)
-            const filters = document.querySelector('.filters');
-            if (window.innerWidth <= 768) {
-                if (panelId === 'filters-mobile') {
-                    filters.style.display = 'flex';
-                    filters.style.position = 'fixed';
-                    filters.style.top = '105px';
-                    filters.style.left = '0';
-                    filters.style.width = '100%';
-                    filters.style.background = 'var(--panel-bg)';
-                    filters.style.zIndex = '2002';
-                    filters.style.padding = '15px';
-                    filters.style.boxSizing = 'border-box';
-                    filters.style.flexWrap = 'wrap';
-                } else {
-                    filters.style.display = ''; // Reset to header logic
-                    filters.style.position = '';
-                }
+            // Copiar el contenido
+            dst.innerHTML = src.innerHTML;
+            
+            // CORRECCIÓN: Ajustar el evento 'onchange' del "Seleccionar Todo" 
+            // para que apunte al contenedor móvil y no al de escritorio.
+            const allCheckbox = dst.querySelector('input[value="all"]');
+            if (allCheckbox) {
+                allCheckbox.setAttribute('onchange', `handleSelectAll('${mobileContainerId}', this)`);
             }
 
-            if (panelId !== 'map-panel' && panelId !== 'filters-mobile') {
-                const panel = document.querySelector('.' + panelId);
-                panel.style.display = 'block';
+            // Asegurar que todos los checkboxes disparen el updateDashboard al cambiar
+            dst.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                if (cb.value !== "all") {
+                    cb.setAttribute('onchange', 'updateDashboard()');
+                }
+            });
+        }
+
+        function syncMobileFilters() {
+            fillMobileMultiSelect('list-depto-m', 'list-depto');
+            fillMobileMultiSelect('list-muni-m', 'list-muni');
+            fillMobileMultiSelect('list-anio-m', 'list-anio');
+        }
+
+        function showMobilePanel(panelId, btn) {
+            // Hide all overlay panels
+            document.querySelectorAll('.left-col, .right-col').forEach(el => el.style.display = 'none');
+            document.querySelector('#filters-overlay').style.display = 'none';
+            document.querySelectorAll('.mobile-btn').forEach(el => el.classList.remove('active'));
+
+            if (panelId === 'filters-mobile') {
+                // Show filters overlay
+                syncMobileFilters();
+                document.querySelector('#filters-overlay').style.display = 'flex';
+            } else if (panelId === 'left-col' || panelId === 'right-col') {
+                document.querySelector('.' + panelId).style.display = 'block';
             }
+            // 'map-panel' = just hide overlays (done above), then resize map
             
             if (btn) btn.classList.add('active');
-            
-            // Fix map size when switching back
-            if (panelId === 'map-panel') {
-                setTimeout(() => map.invalidateSize(), 100);
-            }
+
+            // Always invalidate map size so tiles render correctly
+            setTimeout(() => map.invalidateSize(), 150);
         }
+
 
         initMap();
         loadData();
